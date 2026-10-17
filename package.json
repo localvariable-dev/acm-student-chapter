@@ -1,0 +1,24 @@
+{
+  "name": "acm-student-chapter-dit-pimpri",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && node scripts/create-pages-fallback.mjs",
+    "preview": "vite preview",
+    "test": "node --test",
+    "build:pages": "npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.4",
+    "typescript": "7.0.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}
