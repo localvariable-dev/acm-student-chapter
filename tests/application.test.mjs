@@ -1,9 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
-import { APPLICATION_FIELDS, buildSheetRow, validateApplication } from '../api/lib/applications.mjs'
+import { APPLICATION_FIELDS, validateApplication } from '../api/lib/applications.mjs'
 import { createApplicationHandler } from '../api/lib/handler.mjs'
-import { appendApplicationRow } from '../api/lib/google-sheets.mjs'
+import { createSupabaseApplicationWriter, createSupabaseClient } from '../api/lib/supabase.mjs'
 import { enforceRateLimit } from '../api/lib/rate-limit.mjs'
 
 const sample = {
@@ -47,14 +46,6 @@ test('accepts the optional experience field when omitted', () => {
   assert.equal(validateApplication(withoutExperience).experience, '')
 })
 
-test('builds the stable timestamp-first Google Sheet row', () => {
-  const row = buildSheetRow(validateApplication(sample), '2026-10-18T00:00:00.000Z')
-  assert.deepEqual(row, [
-    '2026-10-18T00:00:00.000Z', 'Ada Student', '+91 98765 43210', 'ada@example.edu',
-    'SE-101', 'Female', 'SE', 'Tech Team', 'Built a small project.',
-  ])
-})
-
 function fakeResponse() {
   return {
     code: 200,
@@ -80,20 +71,19 @@ function request(overrides = {}) {
   }
 }
 
-test('API reports success only after the row writer resolves', async () => {
+test('API reports success only after the database writer resolves', async () => {
   const writes = []
   const handler = createApplicationHandler({
-    appendRow: async row => { writes.push(row) },
+    appendRow: async application => { writes.push(application) },
     rateLimit: async () => true,
     env: { ALLOWED_ORIGINS: 'https://chapter.example' },
-    now: () => new Date('2026-10-18T00:00:00.000Z'),
   })
   const res = fakeResponse()
   await handler(request(), res)
   assert.equal(res.code, 201)
   assert.equal(res.payload.success, true)
   assert.equal(writes.length, 1)
-  assert.equal(writes[0][0], '2026-10-18T00:00:00.000Z')
+  assert.deepEqual(writes[0], validateApplication(sample))
 })
 
 test('API rejects invalid requests and never writes rejected applications', async () => {
@@ -124,7 +114,7 @@ test('API rejects invalid requests and never writes rejected applications', asyn
   assert.equal(writes, 0)
 })
 
-test('API returns failure when the sheet writer fails and does not claim success', async () => {
+test('API returns failure when the database writer fails and does not claim success', async () => {
   const handler = createApplicationHandler({
     appendRow: async () => { throw new Error('private upstream details') },
     rateLimit: async () => true,
@@ -139,6 +129,31 @@ test('API returns failure when the sheet writer fails and does not claim success
   assert.equal(JSON.stringify(res.payload).includes('private upstream details'), false)
 })
 
+test('API logs only sanitized phase diagnostics for a failed dependency', async () => {
+  const logs = []
+  const handler = createApplicationHandler({
+    appendRow: async () => {
+      const error = new Error('applicant data and secret token must not appear')
+      error.diagnosticPhase = 'supabase_insert'
+      error.diagnosticCategory = 'database_error'
+      error.upstreamStatus = 503
+      throw error
+    },
+    rateLimit: async () => true,
+    env: { ALLOWED_ORIGINS: 'https://chapter.example' },
+  })
+  const res = fakeResponse()
+  const originalError = console.error
+  console.error = (...args) => logs.push(args)
+  try { await handler(request(), res) } finally { console.error = originalError }
+  assert.equal(res.code, 502)
+  assert.deepEqual(logs, [['Application dependency failure', {
+    phase: 'supabase_insert', category: 'database_error', upstreamStatus: 503,
+  }]])
+  assert.equal(JSON.stringify(logs).includes('applicant data'), false)
+  assert.equal(JSON.stringify(logs).includes('secret token'), false)
+})
+
 test('API fails closed if durable rate limiting is unavailable', async () => {
   const handler = createApplicationHandler({
     appendRow: async () => assert.fail('must not write when throttling is unavailable'),
@@ -146,7 +161,9 @@ test('API fails closed if durable rate limiting is unavailable', async () => {
     env: { ALLOWED_ORIGINS: 'https://chapter.example' },
   })
   const res = fakeResponse()
-  await handler(request(), res)
+  const originalError = console.error
+  console.error = () => {}
+  try { await handler(request(), res) } finally { console.error = originalError }
   assert.equal(res.code, 503)
   assert.equal(res.payload.code, 'service_unavailable')
 })
@@ -170,28 +187,95 @@ test('API rejects wrong methods, malformed JSON, and oversized bodies', async ()
   assert.equal(oversized.code, 413)
 })
 
-test('Google Sheets adapter exchanges a signed service-account assertion and appends one RAW row', async () => {
-  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
-  const env = {
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: 'chapter-writer@example.iam.gserviceaccount.com',
-    GOOGLE_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-    GOOGLE_SHEET_ID: 'sheet-id-123',
-    GOOGLE_SHEET_RANGE: 'Applications!A:I',
-  }
+test('Supabase adapter inserts only the confirmed application columns and relies on database defaults', async () => {
   const calls = []
-  const fakeFetch = async (url, options) => {
-    calls.push({ url: String(url), options })
-    if (String(url).includes('oauth2.googleapis.com')) {
-      return { ok: true, json: async () => ({ access_token: 'test-access-token', expires_in: 3600 }) }
-    }
-    return { ok: true, json: async () => ({ updates: { updatedRows: 1 } }) }
+  const writer = createSupabaseApplicationWriter({
+    clientFactory: () => ({
+      from: table => ({
+        insert: async payload => {
+          calls.push({ table, payload })
+          return { error: null }
+        },
+      }),
+    }),
+  })
+
+  await writer(validateApplication(sample))
+  assert.deepEqual(calls, [{
+    table: 'applications',
+    payload: {
+      name: 'Ada Student',
+      contact_number: '+91 98765 43210',
+      email: 'ada@example.edu',
+      roll_no: 'SE-101',
+      gender: 'Female',
+      year: 'SE',
+      domain: 'Tech Team',
+      experience: 'Built a small project.',
+    },
+  }])
+  assert.equal('id' in calls[0].payload, false)
+  assert.equal('created_at' in calls[0].payload, false)
+  assert.equal('status' in calls[0].payload, false)
+})
+
+test('Supabase adapter sanitizes database and network failures', async () => {
+  const databaseWriter = createSupabaseApplicationWriter({
+    clientFactory: () => ({
+      from: () => ({ insert: async () => ({ error: { message: 'private applicant content', status: 503 } }) }),
+    }),
+  })
+  await assert.rejects(
+    () => databaseWriter(validateApplication(sample)),
+    error => error.code === 'SUPABASE_INSERT_FAILED'
+      && error.diagnosticPhase === 'supabase_insert'
+      && error.diagnosticCategory === 'database_error'
+      && error.upstreamStatus === 503
+      && !error.message.includes('private applicant'),
+  )
+
+  const networkWriter = createSupabaseApplicationWriter({
+    clientFactory: () => ({ from: () => ({ insert: async () => { throw new Error('secret URL and applicant data') } }) }),
+  })
+  await assert.rejects(
+    () => networkWriter(validateApplication(sample)),
+    error => error.diagnosticCategory === 'network_error'
+      && !error.message.includes('secret URL')
+      && !error.message.includes('applicant'),
+  )
+})
+
+test('missing Supabase configuration fails closed without exposing credential values', async () => {
+  const previousUrl = process.env.SUPABASE_URL
+  const previousKey = process.env.SUPABASE_SECRET_KEY
+  delete process.env.SUPABASE_URL
+  delete process.env.SUPABASE_SECRET_KEY
+  try {
+    assert.throws(
+      () => createSupabaseClient(),
+      error => error.code === 'SUPABASE_NOT_CONFIGURED'
+        && error.diagnosticPhase === 'supabase_insert'
+        && error.diagnosticCategory === 'missing_configuration',
+    )
+
+    const handler = createApplicationHandler({
+      appendRow: application => createSupabaseApplicationWriter()(application),
+      rateLimit: async () => true,
+      env: { ALLOWED_ORIGINS: 'https://chapter.example' },
+    })
+    const res = fakeResponse()
+    const originalError = console.error
+    console.error = () => {}
+    try { await handler(request(), res) } finally { console.error = originalError }
+    assert.equal(res.code, 503)
+    assert.equal(res.payload.success, false)
+    assert.match(res.payload.message, /Google Form fallback/)
+  } finally {
+    if (previousUrl === undefined) delete process.env.SUPABASE_URL
+    else process.env.SUPABASE_URL = previousUrl
+    if (previousKey === undefined) delete process.env.SUPABASE_SECRET_KEY
+    else process.env.SUPABASE_SECRET_KEY = previousKey
   }
-  await appendApplicationRow(buildSheetRow(validateApplication(sample)), env, fakeFetch)
-  assert.equal(calls.length, 2)
-  assert.match(calls[0].options.body.toString(), /grant_type=/)
-  assert.match(calls[1].url, /valueInputOption=RAW/)
-  assert.equal(calls[1].options.headers.Authorization, 'Bearer test-access-token')
-  assert.equal(JSON.parse(calls[1].options.body).values.length, 1)
 })
 
 test('durable rate limiter uses an atomic hashed-IP counter and enforces its limit', async () => {
@@ -211,4 +295,38 @@ test('durable rate limiter uses an atomic hashed-IP counter and enforces its lim
   const limited = await enforceRateLimit('203.0.113.7', env, async () => ({ ok: true, json: async () => ({ result: 11 }) }))
   assert.equal(limited, false)
   await assert.rejects(() => enforceRateLimit('203.0.113.7', {}, async () => assert.fail()), error => error.code === 'RATE_LIMIT_UNAVAILABLE')
+})
+
+test('durable rate limiter fails closed and safely classifies network and timeout failures', async () => {
+  const env = { UPSTASH_REDIS_REST_URL: 'https://redis.example', UPSTASH_REDIS_REST_TOKEN: 'secret-token' }
+  await assert.rejects(
+    () => enforceRateLimit('203.0.113.7', env, async () => { throw new Error('secret-token and URL') }),
+    error => error.code === 'RATE_LIMIT_UNAVAILABLE'
+      && error.diagnosticPhase === 'rate_limit'
+      && error.diagnosticCategory === 'network_error'
+      && !('upstreamStatus' in error)
+      && !error.message.includes('secret-token'),
+  )
+  const timeout = new Error('sensitive timeout details')
+  timeout.name = 'TimeoutError'
+  await assert.rejects(
+    () => enforceRateLimit('203.0.113.7', env, async () => { throw timeout }),
+    error => error.diagnosticCategory === 'timeout' && !error.message.includes('sensitive'),
+  )
+})
+
+test('durable rate limiter fails closed on malformed Upstash JSON without retaining its body', async () => {
+  const env = { UPSTASH_REDIS_REST_URL: 'https://redis.example', UPSTASH_REDIS_REST_TOKEN: 'secret-token' }
+  await assert.rejects(
+    () => enforceRateLimit('203.0.113.7', env, async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('private upstream response body') },
+    })),
+    error => error.code === 'RATE_LIMIT_UNAVAILABLE'
+      && error.diagnosticPhase === 'rate_limit'
+      && error.diagnosticCategory === 'invalid_json'
+      && error.upstreamStatus === 200
+      && !error.message.includes('private upstream'),
+  )
 })

@@ -1,4 +1,4 @@
-import { ApplicationInputError, buildSheetRow, validateApplication } from './applications.mjs'
+import { ApplicationInputError, validateApplication } from './applications.mjs'
 
 const MAX_BODY_BYTES = 8192
 
@@ -26,7 +26,25 @@ function parseBody(body) {
   return body
 }
 
-export function createApplicationHandler({ appendRow, rateLimit, env = process.env, now = () => new Date() }) {
+const DIAGNOSTIC_PHASES = new Set(['rate_limit', 'supabase_insert'])
+const DIAGNOSTIC_CATEGORIES = new Set([
+  'missing_configuration', 'network_error', 'timeout', 'upstream_http_error',
+  'invalid_json', 'invalid_response', 'database_error',
+  'invalid_configuration', 'unexpected_error',
+])
+
+function logDependencyFailure(error, fallbackPhase) {
+  const phase = DIAGNOSTIC_PHASES.has(error?.diagnosticPhase) ? error.diagnosticPhase : fallbackPhase
+  const category = DIAGNOSTIC_CATEGORIES.has(error?.diagnosticCategory) ? error.diagnosticCategory : 'unexpected_error'
+  const status = Number.isInteger(error?.upstreamStatus) && error.upstreamStatus >= 100 && error.upstreamStatus <= 599
+    ? error.upstreamStatus
+    : undefined
+  const details = { phase, category }
+  if (status !== undefined) details.upstreamStatus = status
+  console.error('Application dependency failure', details)
+}
+
+export function createApplicationHandler({ appendRow, rateLimit, env = process.env }) {
   return async function applicationsHandler(req, res) {
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -53,6 +71,7 @@ export function createApplicationHandler({ appendRow, rateLimit, env = process.e
       return send(res, 415, { success: false, code: 'unsupported_media_type', message: 'Send the application as JSON.' })
     }
 
+    let phase = 'rate_limit'
     try {
       const input = parseBody(req.body)
       const clientIp = req.headers?.['x-real-ip'] || req.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
@@ -60,7 +79,8 @@ export function createApplicationHandler({ appendRow, rateLimit, env = process.e
         return send(res, 429, { success: false, code: 'rate_limited', message: 'Please wait before trying to submit again.' })
       }
       const application = validateApplication(input)
-      await appendRow(buildSheetRow(application, now().toISOString()))
+      phase = 'supabase_insert'
+      await appendRow(application)
       return send(res, 201, { success: true, message: 'Application recorded.' })
     } catch (error) {
       if (error instanceof ApplicationInputError) {
@@ -69,10 +89,13 @@ export function createApplicationHandler({ appendRow, rateLimit, env = process.e
       if (error?.status === 413 || error?.status === 400) {
         return send(res, error.status, { success: false, code: error.status === 413 ? 'request_too_large' : 'invalid_json', message: error.message })
       }
-      if (error?.code === 'RATE_LIMIT_UNAVAILABLE' || error?.code === 'SHEETS_NOT_CONFIGURED') {
+      if (error?.code === 'RATE_LIMIT_UNAVAILABLE'
+        || error?.code === 'SUPABASE_NOT_CONFIGURED'
+        || error?.code === 'SUPABASE_CONFIGURATION_INVALID') {
+        logDependencyFailure(error, phase)
         return send(res, 503, { success: false, code: 'service_unavailable', message: 'Application submission is temporarily unavailable. Please use the Google Form fallback.' })
       }
-      console.error('Application submission failed while contacting the configured service.')
+      logDependencyFailure(error, phase)
       return send(res, 502, { success: false, code: 'submission_failed', message: 'We could not confirm that the application was recorded. Please try again or use the Google Form fallback.' })
     }
   }

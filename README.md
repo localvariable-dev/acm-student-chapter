@@ -1,113 +1,59 @@
 # ACM Student Chapter · DIT Pimpri
 
-A responsive Vite and React website for the ACM Student Chapter at Dr. D. Y. Patil Institute of Technology, Pimpri. The homepage remains static on GitHub Pages. The dedicated `/register` page submits the confirmed application schema to a separately hosted Vercel function, which appends accepted entries to the chapter's designated Google Sheet.
+A responsive React/Vite website for the ACM Student Chapter at Dr. D. Y. Patil Institute of Technology, Pimpri. The static frontend is deployed on GitHub Pages. The `/register` page submits the confirmed eight-field application to a separate Vercel serverless API, which inserts it into Supabase PostgreSQL. The existing Google Form remains available as a fallback.
 
 ## Project structure
 
-- `src/App.tsx` contains the existing homepage.
-- `src/components/RegistrationPage.tsx` contains the dedicated registration page and client-side validation.
-- `src/data/content.ts` contains factual homepage content and the existing Google Form fallback URL.
-- `src/styles/global.css` contains shared design tokens, responsive styles, and the registration page treatment.
-- `api/applications.js` is the Vercel `POST /api/applications` serverless entry point.
-- `api/lib/` contains application validation, rate limiting, request handling, and Google Sheets integration.
-- `public/videos/hero-background.mp4` is the supplied hero video; it remains in use on the homepage.
+- `src/App.tsx` contains the homepage.
+- `src/components/RegistrationPage.tsx` contains the registration page and client-side validation.
+- `src/data/content.ts` contains factual homepage content and the Google Form fallback URL.
+- `api/applications.js` is the Vercel `POST /api/applications` entry point.
+- `api/lib/` contains application validation, request handling, Upstash rate limiting, and the server-only Supabase adapter.
+- `supabase/schema.sql` creates the applications table and its restricted permissions.
+- `public/videos/hero-background.mp4` is the supplied homepage hero video.
 
-The application fields are Name, Contact Number, Email, Roll No., Gender, Year, Domain, and optional Experience or prior work. Resume upload is not included. The API adds a server-generated timestamp as the first Google Sheet column.
+The application fields are Name, Contact Number, Email, Roll No., Gender, Year, Domain, and optional Experience or prior work. Resume upload is not included. The database generates `id` and `created_at`; `status` defaults to `pending`.
+
+## Supabase setup
+
+Before deploying the API, open the intended Supabase project’s SQL Editor and run [`supabase/schema.sql`](supabase/schema.sql). It creates `public.applications`, enables RLS, leaves browser roles without table access, and grants insert permission to `service_role`. The API does not send `id`, `created_at`, or `status` in its insert.
+
+Make `public.applications` available to the Supabase Data API in the project’s API settings if it is not already exposed. Keep the table out of browser-facing privileges: do not grant access to `anon` or `authenticated`, and do not add public policies. The Vercel API uses the server-only secret key; never put it in a `VITE_` variable or frontend build.
 
 ## Local development
 
-The registration page calls `${VITE_API_BASE_URL}/api/applications`. `VITE_API_BASE_URL` is required and must be an API **origin**, such as `http://localhost:3000` or `https://your-project.vercel.app`; do not include `/api/applications`. When this value is missing or malformed, the page does not make a relative request to Vite and instead shows the Google Form fallback.
+The registration page calls `${VITE_API_BASE_URL}/api/applications`. `VITE_API_BASE_URL` must be an API origin such as `http://localhost:3000` or the deployed Vercel origin, without `/api/applications`.
 
-### Full local Vercel workflow
+1. Copy `.env.local.example` to `.env.local` and fill it with values for a non-production Supabase project and an Upstash database. Do not commit `.env.local`.
+2. Start the Vercel API locally with `vercel dev --listen 3000`.
+3. In another terminal, run `npm run dev` and open the local Vite URL. The example allows `http://localhost:5173` and points the browser to the local Vercel API at port 3000.
 
-1. Copy `.env.local.example` to `.env.local` and replace the test-only backend placeholders. Do not use a production spreadsheet or production credentials during local testing.
-2. Install the Vercel CLI if it is not already available, log in, and run:
+Run `npm test` for validation, handler, mocked Supabase, and mocked Upstash tests. Run `npm run build` for the type-check and production frontend build. Automated tests do not require live Supabase or Upstash credentials.
 
-```bash
-vercel dev --listen 3000
-```
+## Vercel API configuration
 
-3. Open `http://localhost:3000/register`. With this mode, use `VITE_API_BASE_URL=http://localhost:3000` and include `http://localhost:3000` in `ALLOWED_ORIGINS`.
+Set the following backend variables in Vercel Project Settings → Environment Variables for the environments you use:
 
-### Vite frontend plus local Vercel API
-
-To keep the Vite frontend on port 5173 while Vercel serves the API on port 3000, use this `.env.local` configuration:
-
-```dotenv
-VITE_API_BASE_URL=http://localhost:3000
-ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-```
-
-Then run `vercel dev --listen 3000` and, in a separate terminal, run:
-
-```bash
-npm ci
-npm run dev
-```
-
-Type-check and build the production site with `npm run build`. Run the API validation and mocked Google Sheets tests with `npm test`.
-
-## Google Sheet layout
-
-Create a tab named `Applications` and put these headers in row 1 in exactly this order:
-
-| Column | Header |
+| Variable | Purpose |
 | --- | --- |
-| A | Timestamp |
-| B | Name |
-| C | Contact Number |
-| D | Email |
-| E | Roll No. |
-| F | Gender |
-| G | Year |
-| H | Domain |
-| I | Experience or prior work |
+| `SUPABASE_URL` | Project URL from the Supabase project’s API settings. |
+| `SUPABASE_SECRET_KEY` | Server-only Supabase secret key from the project’s API keys page. Treat as a credential; never expose it to the frontend. |
+| `ALLOWED_ORIGINS` | Comma-separated exact browser origins. For the current GitHub Pages project site, use `https://localvariable-dev.github.io` (no repository path); add any custom domain origin if configured. |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL used by the shared rate limiter. |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token; secret. |
 
-Rows are appended with the Sheets API's `RAW` input option. The timestamp is generated by the API server in ISO 8601 UTC format. The endpoint never accepts a timestamp from the browser.
+The handler validates the application, limits the request body to 8 KiB, checks CORS origins, and uses the durable rate limiter before attempting the database insert. Missing or unavailable backend services fail closed. No applicant content or credentials are logged.
 
-## Owner setup: Google Cloud and Google Sheets
+## Deployment
 
-1. Create a dedicated Google Cloud project or use an approved existing project, then enable the **Google Sheets API**.
-2. Create a dedicated service account for this endpoint. Create a JSON key and keep it outside the repository and frontend build.
-3. Create the destination spreadsheet and the `Applications` tab with the headers above. Copy the spreadsheet ID from its URL.
-4. Share the spreadsheet with the service account email and grant Editor access to that spreadsheet only.
-5. In the Vercel project, set the server-side environment variables below for the environments you intend to use. Do not prefix these with `VITE_`.
+1. Apply `supabase/schema.sql` in the target Supabase project and confirm the table is exposed to the Data API while browser roles remain denied.
+2. Add the Vercel environment variables listed above. Set them for the intended deployment environments, then deploy the repository through the existing Vercel Git integration.
+3. In GitHub repository Actions variables, keep `VITE_API_BASE_URL` set to the Vercel API origin only. The existing Pages workflow uses this public URL at build time; it is not a credential.
+4. Ensure Vercel `ALLOWED_ORIGINS` contains the exact GitHub Pages origin (and any intentionally used custom-domain origin), then redeploy if configuration changed.
+5. Verify with a synthetic application in a non-production/test Supabase project. Confirm the API returns HTTP 201 only after insertion and that one row appears in `public.applications` with the expected field mapping, database-generated `id`/`created_at`, and `pending` status. Remove the synthetic row after verification. Do not use real applicant data for a test.
 
-| Variable | Value |
-| --- | --- |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | The service account email from Google Cloud |
-| `GOOGLE_PRIVATE_KEY` | The service account private key; preserve it as a multiline key or store escaped `\\n` sequences |
-| `GOOGLE_SHEET_ID` | The destination spreadsheet ID |
-| `GOOGLE_SHEET_RANGE` | `Applications!A:I` |
-| `ALLOWED_ORIGINS` | Comma-separated exact origins allowed to call the API, such as `https://chapter.example` |
-| `UPSTASH_REDIS_REST_URL` | REST URL for an Upstash Redis database |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token |
-
-The function uses OAuth scope `https://www.googleapis.com/auth/spreadsheets`. It signs a short-lived service-account assertion on the server; private credentials never enter the browser bundle. The Redis service enforces a shared limit of 10 requests per IP per hour. If Google Sheets or Redis configuration is missing or unavailable, submissions fail closed and the page points applicants to the existing Google Form.
-
-## Vercel API deployment
-
-1. Import this repository as a Vercel project. The `/api/applications` function is discovered separately from the static GitHub Pages site.
-2. Add the backend environment variables above in Vercel Project Settings. Set `ALLOWED_ORIGINS` to the exact production frontend origin (scheme and hostname, without a path). Add staging origins only when needed.
-3. Deploy the Vercel project and note its HTTPS origin, for example `https://your-project.vercel.app`.
-4. Send a test request from an origin listed in `ALLOWED_ORIGINS` using a test sheet before connecting the public frontend. Confirm that the test row appears in the sheet.
-
-CORS origin checks reduce unwanted browser calls; they do not authenticate a caller. The endpoint also validates every field, enforces an 8 KiB body limit, rejects unknown keys, uses a honeypot, and applies the shared Redis limit. It does not log applicant content.
-
-## GitHub Pages and frontend API configuration
-
-The repository contains a GitHub Actions workflow at `.github/workflows/pages.yml`. Enable GitHub Pages with **GitHub Actions** as the publishing source. Add the repository variable `VITE_API_BASE_URL` with the deployed Vercel API origin, such as `https://your-project.vercel.app`, without `/api/applications`. This value is public and contains no credentials. The workflow builds it into the frontend. If this variable is empty, submissions remain unavailable and the form directs applicants to the Google Form fallback instead of calling the GitHub Pages origin.
-
-For a project Pages URL, the workflow defaults to `/<repository-name>/`. Set Vercel `ALLOWED_ORIGINS` to the Pages origin, for example `https://owner.github.io`, since browser origins do not include the repository path. To use a custom domain at the site root, set the repository variable `GITHUB_PAGES_BASE_PATH` to `/`, set `VITE_API_BASE_URL` to the same deployed Vercel origin, add the custom domain origin to Vercel `ALLOWED_ORIGINS`, then configure the domain and DNS in GitHub Pages. The build creates `dist/404.html` from the application shell so GitHub Pages can serve the React app on a direct `/register` visit or refresh; the route is selected client-side. The API stays at `/api/applications` on the separate Vercel origin.
-
-If `VITE_API_BASE_URL` is not configured or the service is unavailable, the application can still be opened and the existing Google Form remains linked as a fallback. The page displays success only after the API confirms the sheet write. Keep the fallback until a real test application is verified in the intended spreadsheet.
-
-## Credential handling and rotation
-
-- Never commit a service-account JSON key, private key, Redis token, or populated `.env` file. `.env.example` contains placeholders only.
-- If a credential is exposed, revoke/delete it in Google Cloud or Upstash, create a replacement, update the Vercel environment value, and redeploy. Review the spreadsheet's sharing list and remove obsolete service-account access.
-- Keep Google and Redis variables only in Vercel's server environment. Only `VITE_API_BASE_URL` belongs in the frontend build.
+GitHub Pages uses the repository’s `404.html` fallback for direct `/register` visits and refreshes. The API remains on its separate Vercel origin at `POST /api/applications`.
 
 ## Verification status
 
-Automated validation and API tests exercise accepted rows, rejected payloads, origin/method checks, rate limiting, response behavior, and a mocked Google token/Sheets exchange. Those tests do not prove access to a real Google project or spreadsheet. The live flow is not operational until the owner completes the Google Cloud, Sheet, Upstash, Vercel, and GitHub Pages settings and verifies a test row in the configured sheet.
+Unit tests use a mocked Supabase client and cannot establish that the owner’s Supabase project, Vercel variables, Data API exposure, or production deployment are configured correctly. The production flow is not verified until a synthetic test insert is confirmed in the intended Supabase table.

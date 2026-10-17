@@ -9,18 +9,6 @@ export const APPLICATION_FIELDS = Object.freeze([
   'experience',
 ])
 
-export const SHEET_HEADERS = Object.freeze([
-  'Timestamp',
-  'Name',
-  'Contact Number',
-  'Email',
-  'Roll No.',
-  'Gender',
-  'Year',
-  'Domain',
-  'Experience or prior work',
-])
-
 const genders = new Set(['Male', 'Female'])
 const years = new Set(['SE', 'TE'])
 const domains = new Set([
@@ -35,7 +23,6 @@ export class ApplicationInputError extends Error {
     this.fields = fields
   }
 }
-
 export function validateApplication(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new ApplicationInputError('Send a JSON object containing the application fields.')
@@ -85,18 +72,4 @@ export function validateApplication(input) {
     throw new ApplicationInputError('The application could not be accepted.')
   }
   return values
-}
-
-export function buildSheetRow(application, timestamp = new Date().toISOString()) {
-  return [
-    timestamp,
-    application.name,
-    application.contactNumber,
-    application.email,
-    application.rollNo,
-    application.gender,
-    application.year,
-    application.domain,
-    application.experience,
-  ]
 }
