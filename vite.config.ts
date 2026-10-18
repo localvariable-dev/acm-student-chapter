@@ -5,6 +5,6 @@ declare const process: { env: Record<string, string | undefined> }
 
 export default defineConfig({
   // Use '/' for a custom domain; set GITHUB_PAGES_BASE_PATH for a project subpath.
-  base: process.env.GITHUB_PAGES_BASE_PATH || '/',
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
 })
