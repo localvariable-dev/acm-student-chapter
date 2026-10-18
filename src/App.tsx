@@ -47,7 +47,7 @@ function App() {
       </video>}
       <div className="hero-wash" />
       <nav className="nav shell" aria-label="Primary navigation">
-        <a className="wordmark" href="#top" aria-label="ACM Student Chapter home"><span>ACM</span><i>Student Chapter</i></a>
+        <a className="wordmark" href="#top" aria-label="ACM Student Chapter home"><img src={`${import.meta.env.BASE_URL}acm-logo.png`} alt="ACM DIT Student Chapter" /></a>
         <div id="primary-links" className={menuOpen ? 'nav-links open' : 'nav-links'}>
           {nav.map(item => <a key={item} onClick={() => setMenuOpen(false)} href={`#${item.toLowerCase()}`}>{item}</a>)}
           <a className="nav-join mobile-join" href={registrationPath}>Apply now <Arrow /></a>

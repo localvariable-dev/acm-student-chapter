@@ -142,3 +142,8 @@ html{scroll-padding-top:24px}
 .team-list h3{margin:auto 0 8px;font:500 23px/1.04 var(--display);letter-spacing:-.035em}
 .team-list span{color:var(--muted);font-size:12px;line-height:1.4}
 @media(max-width:760px){.team-list{grid-template-columns:1fr}}
+
+/* Supplied chapter logo in the shared navigation. */
+.wordmark{align-items:center;flex:none}
+.wordmark img{display:block;width:190px;max-height:64px;object-fit:contain}
+@media(max-width:760px){.wordmark img{width:158px;max-height:53px}}

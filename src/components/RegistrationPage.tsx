@@ -145,7 +145,7 @@ function RegistrationPage() {
     <div className="registration-page">
       <header className="registration-header">
         <nav className="registration-nav shell" aria-label="Primary navigation">
-          <a className="wordmark" href={homePath} aria-label="ACM Student Chapter home"><span>ACM</span><i>Student Chapter</i></a>
+          <a className="wordmark" href={homePath} aria-label="ACM Student Chapter home"><img src={`${import.meta.env.BASE_URL}acm-logo.png`} alt="ACM DIT Student Chapter" /></a>
           <div id="registration-links" className={menuOpen ? 'registration-nav-links open' : 'registration-nav-links'}>
             <a onClick={() => setMenuOpen(false)} href={`${homePath}#about`}>About</a>
             <a onClick={() => setMenuOpen(false)} href={`${homePath}#explore`}>Explore</a>
