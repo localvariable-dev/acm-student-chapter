@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Accordion } from './components/Accordion'
 import { Arrow } from './components/Arrow'
 import { SectionHeader } from './components/SectionHeader'
-import { explorationAreas, faqs, journey } from './data/content'
+import { chapterTeam, explorationAreas, faqs, journey } from './data/content'
 
 const nav = ['About', 'Explore', 'Journey', 'Membership'] as const
 const registrationPath = `${import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`}register`
@@ -91,7 +91,7 @@ function App() {
 
       <section className="membership section" id="membership"><div className="shell"><div className="membership-intro"><p className="eyebrow">07 — Membership</p><h2>Bring what you know.<br /><em>Bring what you’re curious about.</em></h2><p>Eligible SE and TE students at Dr. D. Y. Patil Institute of Technology, Pimpri can apply to join a student community built around computing, exploration, and contribution.</p><a className="button button-primary" href={registrationPath}>Open the application <Arrow /></a><small>Submitting an application does not itself guarantee membership.</small></div><div><p className="process-label">APPLICATION PROCESS</p><ol className="process"><li><span>01</span>Open the application form</li><li><span>02</span>Submit your application</li><li><span>03</span>Follow the chapter’s applicable process</li></ol><Accordion items={faqs} /></div><p className="fee-note">Registration fees may be involved*</p></div></section>
 
-      <section className="team section"><div className="shell team-grid"><SectionHeader eyebrow="08 — Chapter team" title={<>People will make<br />this <em>matter.</em></>}><p>Verified leadership information can be introduced here once it is confirmed for publication.</p></SectionHeader><div className="team-placeholder"><span>ACM</span><p>Leadership details<br />to be confirmed.</p><small>NO TEAM PROFILES PUBLISHED</small></div></div></section>
+      <section className="team section"><div className="shell team-grid"><SectionHeader eyebrow="08 — Chapter team" title={<>People who make<br />this <em>matter.</em></>}><p>The ACM DIT Student Chapter, ACM-W DIT Student Chapter, and faculty co-ordinators who guide this community.</p></SectionHeader><ul className="team-list">{chapterTeam.map(([group, name, role]) => <li key={`${group}-${name}`}><p>{group}</p><h3>{name}</h3><span>{role}</span></li>)}</ul></div></section>
     </main>
     <footer><div className="shell footer-top"><a className="wordmark" href="#top"><span>ACM</span><i>Student Chapter</i></a><p>Dr. D. Y. Patil Institute of Technology<br />Pimpri, Pune, Maharashtra, India</p><div><a href="#about">About</a><a href="#explore">Explore</a><a href={registrationPath}>Apply</a></div></div><div className="shell footer-bottom"><span>DIT Pimpri · Pune</span><a href="https://www.acm.org/" target="_blank" rel="noreferrer">ACM — Association for Computing Machinery <Arrow /></a><span>© {new Date().getFullYear()}</span></div></footer>
   </>

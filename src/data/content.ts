@@ -25,3 +25,17 @@ export const faqs = [
   ['Can non-technical students join?', 'Yes. Eligible students can contribute through creative, organizational, communication, and community-building work.'],
   ['Does applying guarantee membership?', 'No. Selection or confirmation follows the chapter’s applicable process.'],
 ] as const
+
+export const chapterTeam = [
+  ['ACM DIT Student Chapter', 'Mr. Prashant Kokare', 'Chairperson'],
+  ['ACM DIT Student Chapter', 'Mr. Samyak Khobragade', 'Vice-Chairperson'],
+  ['ACM DIT Student Chapter', 'Ms. Srushti Ahire', 'Secretary'],
+  ['ACM DIT Student Chapter', 'Mr. Tanmay Ghadge', 'Treasurer'],
+  ['ACM DIT Student Chapter', 'Ms. Nikita Shinde', 'Membership Chairperson'],
+  ['ACM-W DIT Student Chapter', 'Ms. Samiksha Khaire', 'Chairperson'],
+  ['ACM-W DIT Student Chapter', 'Ms. Tanishka Dalvi', 'Vice-Chairperson'],
+  ['ACM-W DIT Student Chapter', 'Ms. Renuka Pachghare', 'Secretary'],
+  ['ACM-W DIT Student Chapter', 'Ms. Bharti Deshmukh', 'Treasurer'],
+  ['Faculty', 'Dr. Jyoti Shinde', 'Faculty Co-ordinator'],
+  ['Faculty', 'Mrs. Swapnali Gaikwad', 'Faculty Co-ordinator'],
+] as const
